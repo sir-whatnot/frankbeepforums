@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>frank beep</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  #posts { margin-top: 20px; }
+  .post { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+  .comments { margin-left: 20px; margin-top: 10px; }
+  .comment { border-top: 1px dashed #ccc; padding-top: 5px; margin-top: 5px; }
+  .badge { background-color: yellow; padding: 2px 5px; border-radius: 3px; font-size: 0.8em; margin-left: 5px; cursor:pointer; }
+  .admin-badge { background-color: red; color: white; }
+  .action-btn { margin-top: 5px; margin-right: 5px; }
+</style>
+</head>
+<body>
+
+<h1>frank beep</h1>
+
+<div id="auth">
+  <h2>Login / Signup</h2>
+  <input type="text" id="username" placeholder="Username" />
+  <input type="password" id="password" placeholder="Password" />
+  <button onclick="login()">Login</button>
+  <button onclick="showSignup()">Sign Up</button>
+</div>
+
+<div id="signupSection" style="display:none;">
+  <h3>Sign Up</h3>
+  <label>Username:</label><input type="text" id="signupUsername" /><br/>
+  <label>Password:</label><input type="password" id="signupPassword" /><br/>
+  <button onclick="signup()">Register</button>
+  <button onclick="hideSignup()">Cancel</button>
+</div>
+
+<div id="userSection" style="display:none;">
+  <h2>Welcome, <span id="currentUser"></span>
+    <span id="userBadge"></span>
+  </h2>
+  <button onclick="showAccount()">Account Settings</button>
+  <button onclick="logout()">Logout</button>
+  <button onclick="saveToPupilman()">Reset Username to pupilman</button>
+</div>
+
+<div id="account" style="display:none;">
+  <h3>Account Settings</h3>
+  <p>Change your username (once every 24 hours):</p>
+  <input type="text" id="newUsername" placeholder="New username"/>
+  <button onclick="changeUsername()">Change Username</button>
+  <button onclick="hideAccount()">Cancel</button>
+  <div id="adminActions" style="margin-top:10px; display:none;">
+    <h4>Admin Controls</h4>
+    <button onclick="banAccount()">Ban User</button>
+    <button onclick="terminateAccount()">Terminate (Delete) User</button>
+    <br/><br/>
+    <label>Toggle Moderator:</label>
+    <input type="text" id="modUsername" placeholder="Username" />
+    <button onclick="toggleModerator()">Toggle Moderator Badge</button>
+  </div>
+</div>
+
+<div id="postSection" style="display:none;">
+  <h3>Create a Post</h3>
+  <textarea id="postContent" rows="3" cols="50" placeholder="Write your post..."></textarea><br/>
+  <button onclick="addPost()">Post</button>
+</div>
+
+<h2>Forum Posts</h2>
+<div id="posts"></div>
+
+<script>
+  let currentUser = null;
+  let users = JSON.parse(localStorage.getItem('users')) || {}; // {username: {password, isAdmin, isModerator, banned, lastUsernameChange}}
+  let posts = JSON.parse(localStorage.getItem('posts')) || [];
+
+  // Initialize admin account if missing
+  if (!users['pupilman']) {
+    users['pupilman'] = {
+      password: 'grAapeA12u4',
+      isAdmin: true,
+      isModerator: false,
+      banned: false,
+      lastUsernameChange: null
+    };
+    saveData();
+  }
+
+  // Try auto-login if saved
+  if (localStorage.getItem('loggedInUser')) {
+    const savedUser = localStorage.getItem('loggedInUser');
+    if (users[savedUser] && !users[savedUser].banned) {
+      currentUser = savedUser;
+      updateUI();
+    }
+  }
+
+  function saveData() {
+    localStorage.setItem('users', JSON.stringify(users));
+    localStorage.setItem('posts', JSON.stringify(posts));
+  }
+
+  // Login & Signup
+  function showSignup() { document.getElementById('signupSection').style.display='block'; }
+  function hideSignup() { document.getElementById('signupSection').style.display='none'; }
+
+  function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (username && password) {
+      if (users[username] && !users[username].banned) {
+        if (users[username].password === password) {
+          currentUser = username;
+          localStorage.setItem('loggedInUser', username);
+          updateUI();
+        } else {
+          alert('Incorrect password.');
+        }
+      } else {
+        alert('Account does not exist or is banned.');
+      }
+    } else {
+      alert('Enter username and password.');
+    }
+  }
+
+  function signup() {
+    const username = document.getElementById('signupUsername').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    if (username && password) {
+      if (!users[username]) {
+        users[username] = {
+          password: password,
+          isAdmin: false,
+          isModerator: false,
+          banned: false,
+          lastUsernameChange: null
+        };
+        saveData();
+        currentUser = username;
+        localStorage.setItem('loggedInUser', username);
+        updateUI();
+        hideSignup();
+      } else {
+        alert('Username already exists.');
+      }
+    } else {
+      alert('Enter username and password.');
+    }
+  }
+
+  function updateUI() {
+    if (currentUser) {
+      document.getElementById('auth').style.display='none';
+      document.getElementById('userSection').style.display='block';
+      document.getElementById('currentUser').innerText = currentUser;
+      updateBadge();
+      document.getElementById('postSection').style.display='block';
+      displayPosts();
+    }
+  }
+
+  function updateBadge() {
+    const user = users[currentUser];
+    const badgeSpan = document.getElementById('userBadge');
+    badgeSpan.innerHTML = '';
+    if (user.isAdmin) {
+      badgeSpan.innerHTML = '<span class="badge admin-badge">Admin</span>';
+    } else if (user.isModerator) {
+      badgeSpan.innerHTML = '<span class="badge">Moderator</span>';
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('loggedInUser');
+    currentUser = null;
+    document.getElementById('auth').style.display='block';
+    document.getElementById('userSection').style.display='none';
+    document.getElementById('account').style.display='none';
+  }
+
+  // Account settings
+  function showAccount() {
+    document.getElementById('account').style.display='block';
+    if (users[currentUser] && users[currentUser].isAdmin) {
+      document.getElementById('adminActions').style.display='block';
+    } else {
+      document.getElementById('adminActions').style.display='none';
+    }
+  }
+
+  function hideAccount() { document.getElementById('account').style.display='none'; }
+
+  function changeUsername() {
+    const newName = document.getElementById('newUsername').value.trim();
+    if (!newName || newName in users) {
+      alert('Invalid or taken username.');
+      return;
+    }
+    const user = users[currentUser];
+    const now = Date.now();
+    if (user.lastUsernameChange && (now - user.lastUsernameChange) < 24*60*60*1000) {
+      alert('You can only change your username once every 24 hours.');
+      return;
+    }
+    users[newName] = {...user};
+    delete users[currentUser];
+    users[newName].lastUsernameChange = now;
+    currentUser = newName;
+    localStorage.setItem('loggedInUser', newName);
+    saveData();
+    updateUI();
+  }
+
+  // Reset username to pupilman
+  function saveToPupilman() {
+    if (confirm('Reset your username to pupilman?')) {
+      if ('pupilman' in users) {
+        alert('pupilman account already exists, cannot reset.');
+        return;
+      }
+      users['pupilman'] = {...users[currentUser]};
+      delete users[currentUser];
+      currentUser='pupilman';
+      localStorage.setItem('loggedInUser', 'pupilman');
+      saveData();
+      updateUI();
+    }
+  }
+
+  // Admin login
+  function adminLogin() {
+    const password = document.getElementById('adminPassword').value;
+    if (password==='grAapeA12u4') {
+      // find admin user with that password
+      for (let u in users) {
+        if (users[u].isAdmin && users[u].password==='grAapeA12u4') {
+          currentUser=u;
+          localStorage.setItem('loggedInUser', u);
+          updateUI();
+          hideAdminLogin();
+          return;
+        }
+      }
+    }
+    alert('Incorrect admin password.');
+  }
+
+  function showAdminLogin() { document.getElementById('adminLogin').style.display='block'; }
+  function hideAdminLogin() { document.getElementById('adminLogin').style.display='none'; }
+
+  // Post creation
+  function addPost() {
+    if (users[currentUser].banned) {
+      alert('You are banned and cannot post.');
+      return;
+    }
+    const content = document.getElementById('postContent').value.trim();
+    if (content) {
+      const post = {
+        id: Date.now(),
+        author: currentUser,
+        content: content,
+        comments: []
+      };
+      posts.push(post);
+      saveData();
+      document.getElementById('postContent').value='';
+      displayPosts();
+    }
+  }
+
+  function displayPosts() {
+    const container = document.getElementById('posts');
+    container.innerHTML='';
+    for (let post of posts) {
+      const postDiv = document.createElement('div');
+      postDiv.className='post';
+
+      const authorBadge = users[post.author].isAdmin ? '<span class="badge admin-badge">Admin</span>' :
+                          users[post.author].isModerator ? '<span class="badge">Moderator</span>' : '';
+
+      // Clicking username toggles moderator status if admin
+      const userNameDisplay = `<span style="cursor:pointer;" onclick="toggleUserModerator('${post.author}')">${post.author}</span>`;
+
+      postDiv.innerHTML=`
+        <strong>${userNameDisplay}</strong> ${authorBadge}: ${post.content}
+        <div class="comments" id="comments-${post.id}">
+          ${post.comments.map(c => `<div class="comment"><strong>${c.author}:</strong> ${c.content}</div>`).join('')}
+        </div>
+        <input type="text" placeholder="Comment..." id="comment-input-${post.id}" />
+        <button onclick="addComment(${post.id})">Comment</button>
+      `;
+      container.appendChild(postDiv);
+    }
+  }
+
+  function addComment(postId) {
+    if (users[currentUser].banned) {
+      alert('You are banned and cannot comment.');
+      return;
+    }
+    const input = document.getElementById(`comment-input-${postId}`);
+    const content = input.value.trim();
+    if (content) {
+      const post = posts.find(p => p.id===postId);
+      if (post) {
+        post.comments.push({author: currentUser, content: content});
+        saveData();
+        displayPosts();
+      }
+    }
+  }
+
+  // Admin controls: Ban, Terminate, Toggle Moderator
+  function banAccount() {
+    const username = prompt('Enter username to ban:');
+    if (users[username]) {
+      users[username].banned=true;
+      saveData();
+      alert('User banned.');
+      displayPosts();
+    } else {
+      alert('User not found.');
+    }
+  }
+
+  function terminateAccount() {
+    const username = prompt('Enter username to delete:');
+    if (users[username]) {
+      delete users[username];
+      saveData();
+      alert('User terminated.');
+      displayPosts();
+    }
+  }
+
+  function toggleModerator() {
+    const username = document.getElementById('modUsername').value.trim();
+    if (!username || !(username in users)) {
+      alert('User not found.');
+      return;
+    }
+    users[username].isModerator = !users[username].isModerator;
+    saveData();
+    alert(`${username} moderator status toggled.`);
+    displayPosts();
+  }
+
+  // Clicking on a username in posts/comments
+  function toggleUserModerator(username) {
+    if (!users[currentUser] || !users[currentUser].isAdmin) {
+      alert('Only admin can change moderator status.');
+      return;
+    }
+    // Toggle moderator
+    users[username].isModerator = !users[username].isModerator;
+    saveData();
+    alert(`${username} moderator status is now: ${users[username].isModerator}`);
+    displayPosts();
+  }
+
+</script>
+</body>
+</html>
