@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FrankBeepForums</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  #posts { margin-top: 20px; }
+  .post { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+  .comments { margin-left: 20px; margin-top: 10px; }
+  .comment { border-top: 1px dashed #ccc; padding-top: 5px; margin-top: 5px; }
+  .badge { background-color: yellow; padding: 2px 5px; border-radius: 3px; font-size: 0.8em; margin-left: 5px; cursor:pointer; }
+  .admin-badge { background-color: red; color: white; }
+</style>
+</head>
+<body>
+
+<h1>FrankBeepForums</h1>
+
+<h3>Select Server</h3>
+<select id="serverSelect"></select>
+
+<div id="auth">
+  <h2>Login / Signup</h2>
+  <input type="text" id="username" placeholder="Username" />
+  <input type="password" id="password" placeholder="Password" />
+  <button onclick="login()">Login</button>
+  <button onclick="showSignup()">Sign Up</button>
+</div>
+
+<div id="signupSection" style="display:none;">
+  <h3>Sign Up</h3>
+  <label>Username:</label><input type="text" id="signupUsername" /><br/>
+  <label>Password:</label><input type="password" id="signupPassword" /><br/>
+  <button onclick="signup()">Register</button>
+  <button onclick="hideSignup()">Cancel</button>
+</div>
+
+<div id="userSection" style="display:none;">
+  <h2>Welcome, <span id="currentUser"></span>
+    <span id="userBadge"></span>
+  </h2>
+  <button onclick="showAccount()">Account Settings</button>
+  <button onclick="logout()">Logout</button>
+  <button onclick="saveToPupilman()">Reset Username to pupilman</button>
+</div>
+
+<div id="account" style="display:none;">
+  <h3>Account Settings</h3>
+  <p>Change your username (once every 24 hours):</p>
+  <input type="text" id="newUsername" placeholder="New username"/>
+  <button onclick="changeUsername()">Change Username</button>
+  <button onclick="hideAccount()">Cancel</button>
+  <div id="adminActions" style="margin-top:10px; display:none;">
+    <h4>Admin Controls</h4>
+    <button onclick="banAccount()">Ban User</button>
+    <button onclick="terminateAccount()">Terminate (Delete) User</button>
+    <br/><br/>
+    <label>Toggle Moderator:</label>
+    <input type="text" id="modUsername" placeholder="Username" />
+    <button onclick="toggleModerator()">Toggle Moderator Badge</button>
+  </div>
+</div>
+
+<div id="postSection" style="display:none;">
+  <h3>Create a Post</h3>
+  <textarea id="postContent" rows="3" cols="50" placeholder="Write your post..."></textarea><br/>
+  <button onclick="addPost()">Post</button>
+</div>
+
+<h2>Forum Posts</h2>
+<div id="posts"></div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.21.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.21.0/firebase-database-compat.js"></script>
+
+<script>
+  // --- Firebase Config (Demo project) ---
+  const firebaseConfig = {
+    apiKey: "AIzaSyD-dummy-api-key-for-demo",
+    authDomain: "demo-project.firebaseapp.com",
+    databaseURL: "https://demo-project.firebaseio.com",
+    projectId: "demo-project",
+    storageBucket: "demo-project.appspot.com",
+    messagingSenderId: "1234567890",
+    appId: "1:1234567890:web:abcdef123456"
+  };
+
+  // Firebase initialization
+  let app = firebase.initializeApp(firebaseConfig);
+  let dbRef = firebase.database().ref();
+
+  let users = {};
+  let posts = [];
+  let currentUser = null;
+
+  // Populate server dropdown (only one demo server here)
+  const servers = [
+    { name: "Demo Server", config: firebaseConfig }
+  ];
+  const serverSelect = document.getElementById('serverSelect');
+  servers.forEach((srv, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.innerText = srv.name;
+    serverSelect.appendChild(opt);
+  });
+  // Load data from default server
+  loadData();
+
+  function switchServer() {
+    const index = parseInt(document.getElementById('serverSelect').value);
+    // Re-initialize Firebase with selected server
+    firebase.app().delete().then(() => {
+      app = firebase.initializeApp(servers[index].config);
+      dbRef = firebase.database().ref();
+      loadData();
+    });
+  }
+
+  function loadData() {
+    // Load users
+    firebase.database().ref('users').once('value').then(snap => {
+      users = snap.val() || {};
+      // Load posts
+      loadPosts();
+    });
+  }
+
+  function loadPosts() {
+    firebase.database().ref('posts').once('value').then(snap => {
+      posts = snap.val() || [];
+      displayPosts();
+    });
+  }
+
+  function saveUsers() {
+    firebase.database().ref('users').set(users);
+  }
+  function savePosts() {
+    firebase.database().ref('posts').set(posts);
+  }
+
+  // --- Authentication ---
+  function showSignup() { document.getElementById('signupSection').style.display='block'; }
+  function hideSignup() { document.getElementById('signupSection').style.display='none'; }
+
+  function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (username && password) {
+      if (users[username] && !users[username].banned) {
+        if (users[username].password === password) {
+          currentUser = username;
+          localStorage.setItem('loggedInUser', username);
+          updateUI();
+        } else { alert('Incorrect password.'); }
+      } else { alert('Account does not exist or is banned.'); }
+    }
+  }
+
+  function signup() {
+    const username = document.getElementById('signupUsername').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    if (username && password) {
+      if (!users[username]) {
+        users[username] = {
+          password: password,
+          isAdmin: username==='pupilman', // auto admin
+          isModerator: false,
+          banned: false,
+          lastUsernameChange: null
+        };
+        saveUsers();
+        currentUser = username;
+        localStorage.setItem('loggedInUser', username);
+        updateUI();
+        hideSignup();
+      } else { alert('Username already exists.'); }
+    }
+  }
+
+  function updateUI() {
+    if (currentUser) {
+      document.getElementById('auth').style.display='none';
+      document.getElementById('userSection').style.display='block';
+      document.getElementById('currentUser').innerText = currentUser;
+      updateBadge();
+      document.getElementById('postSection').style.display='block';
+      displayPosts();
+    }
+  }
+
+  function updateBadge() {
+    const u = users[currentUser];
+    const badgeSpan = document.getElementById('userBadge');
+    badgeSpan.innerHTML = '';
+    if (u.isAdmin) badgeSpan.innerHTML = '<span class="badge admin-badge">Admin</span>';
+    else if (u.isModerator) badgeSpan.innerHTML = '<span class="badge">Moderator</span>';
+  }
+
+  function logout() {
+    localStorage.removeItem('loggedInUser');
+    currentUser = null;
+    document.getElementById('auth').style.display='block';
+    document.getElementById('userSection').style.display='none';
+  }
+
+  // Account controls
+  function showAccount() {
+    document.getElementById('account').style.display='block';
+    document.getElementById('adminActions').style.display = (users[currentUser] && users[currentUser].isAdmin) ? 'block':'none';
+  }
+  function hideAccount() { document.getElementById('account').style.display='none'; }
+
+  function changeUsername() {
+    const newName = document.getElementById('newUsername').value.trim();
+    if (!newName || newName in users) { alert('Invalid or taken username.'); return; }
+    const user = users[currentUser];
+    const now = Date.now();
+    if (user.lastUsernameChange && (now - user.lastUsernameChange) < 24*60*60*1000) {
+      alert('You can only change username once every 24 hours.');
+      return;
+    }
+    users[newName] = {...user};
+    delete users[currentUser];
+    users[newName].lastUsernameChange = now;
+    currentUser=newName;
+    localStorage.setItem('loggedInUser', newName);
+    saveUsers();
+    updateUI();
+  }
+
+  function saveToPupilman() {
+    if (confirm('Reset username to pupilman?')) {
+      if ('pupilman' in users) {
+        alert('pupilman account exists.');
+        return;
+      }
+      users['pupilman'] = {...users[currentUser]};
+      delete users[currentUser];
+      currentUser='pupilman';
+      localStorage.setItem('loggedInUser', 'pupilman');
+      saveUsers();
+      updateUI();
+    }
+  }
+
+  // Admin controls
+  function banAccount() {
+    const username = prompt('Enter username to ban:');
+    if (username && users[username]) {
+      users[username].banned=true;
+      saveUsers();
+      alert('User banned.');
+      loadData();
+    }
+  }
+  function terminateAccount() {
+    const username = prompt('Enter username to delete:');
+    if (username && users[username]) {
+      delete users[username];
+      saveUsers();
+      alert('User terminated.');
+      loadData();
+    }
+  }
+  function toggleModerator() {
+    const username = document.getElementById('modUsername').value.trim();
+    if (!username || !(username in users)) { alert('User not found.'); return; }
+    if (!users[currentUser] || !users[currentUser].isAdmin) { alert('Only admin can toggle moderator.'); return; }
+    users[username].isModerator = !users[username].isModerator;
+    saveUsers();
+    alert(`${username} moderator status is now: ${users[username].isModerator}`);
+    loadData();
+  }
+
+  // Posts
+  function displayPosts() {
+    const container = document.getElementById('posts');
+    container.innerHTML='';
+    for (let post of posts) {
+      const postDiv = document.createElement('div');
+      postDiv.className='post';
+
+      const authorBadge = users[post.author].isAdmin ? '<span class="badge admin-badge">Admin</span>' :
+                          users[post.author].isModerator ? '<span class="badge">Moderator</span>' : '';
+
+      const userSpan = `<span style="cursor:pointer;" onclick="toggleUserModerator('${post.author}')">${post.author}</span>`;
+
+      postDiv.innerHTML=`
+        <strong>${userSpan}</strong> ${authorBadge}: ${post.content}
+        <div class="comments" id="comments-${post.id}">
+          ${post.comments.map(c => `<div class="comment"><strong>${c.author}:</strong> ${c.content}</div>`).join('')}
+        </div>
+        <input type="text" placeholder="Comment..." id="comment-input-${post.id}" />
+        <button onclick="addComment(${post.id})">Comment</button>
+      `;
+      container.appendChild(postDiv);
+    }
+  }
+
+  function addPost() {
+    if (users[currentUser].banned) { alert('You are banned.'); return; }
+    const content = document.getElementById('postContent').value.trim();
+    if (content) {
+      const newPost = { id: Date.now(), author: currentUser, content: content, comments: [] };
+      posts.push(newPost);
+      savePosts();
+      document.getElementById('postContent').value='';
+      displayPosts();
+    }
+  }
+
+  function addComment(postId) {
+    if (users[currentUser].banned) { alert('You are banned.'); return; }
+    const input = document.getElementById(`comment-input-${postId}`);
+    const content = input.value.trim();
+    if (content) {
+      const post = posts.find(p => p.id===postId);
+      if (post) {
+        post.comments.push({author: currentUser, content: content});
+        savePosts();
+        displayPosts();
+      }
+    }
+  }
+
+  function toggleUserModerator(username) {
+    if (!users[currentUser] || !users[currentUser].isAdmin) { alert('Only admin can change moderator.'); return; }
+    users[username].isModerator = !users[username].isModerator;
+    saveUsers();
+    alert(`${username} moderator status is now: ${users[username].isModerator}`);
+    loadData();
+  }
+
+  // Load saved user on page load
+  window.onload = () => {
+    const savedUser = localStorage.getItem('loggedInUser');
+    if (savedUser && users[savedUser] && !users[savedUser].banned) {
+      currentUser=savedUser;
+      updateUI();
+    }
+  };
+</script>
+
+</body>
+</html>
